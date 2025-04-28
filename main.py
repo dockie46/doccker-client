@@ -42,3 +42,9 @@ except NoDataFoundException as e:
     print(f"Container '{container_id}' not found.")
 except Exception as e:
     print(f"Failed to start container '{container_id}': {str(e)}")
+
+try:
+    is_installed_latest_version = client.is_installed_latest_version()
+    print(f"Is installed latest version: {is_installed_latest_version}")
+except Exception as e:
+    print(f"Occured with is installed latest '{container_id}': {str(e)}")
