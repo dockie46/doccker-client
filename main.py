@@ -1,50 +1,72 @@
-import sys
-import urllib3
-from docker.errors import DockerException
-from services.docker_client import DockerClient
-from urllib3.exceptions import InsecureRequestWarning
-from models.exceptions import NoDataFoundException
+import uvicorn
+from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Depends
+from fastapi.templating import Jinja2Templates
+from middlewares.loggingMiddleware import LoggingMiddleware
+from dependencies import get_docker_client, get_prediction_manager
+from routers import containers, images
 
-# Disable SSL warnings globally for urllib3
-urllib3.disable_warnings(InsecureRequestWarning)
 
-try:
-    client = DockerClient()
-except DockerException as e:
-    print("Docker is not running or cannot be reached. Please start Docker and try again.")
-    sys.exit(1)
-except Exception as e:
-    print(f"An error occurred while initializing DockerClient: {str(e)}")
-    sys.exit(1)
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
-try:
-    images = client.list_images()
-    for image in images:
-        print(image)
-except NoDataFoundException as e:
-    print("Actually, no Docker images found.")
-except Exception as e:
-    print(f"An unexpected error occurred while listing images: {str(e)}")
+app.include_router(containers.router)
+app.include_router(images.router)
 
-try:
-    containers = client.list_containers()
-    for container in containers:
-        print(container)
-except NoDataFoundException as e:
-    print("Actually, no Docker containers found.")
-except Exception as e:
-    print(f"An unexpected error occurred while listing containers: {str(e)}")
+app.add_middleware(LoggingMiddleware)
 
-try:
-    container_id = input("Enter the container ID to start: ")
-    client.start_container(container_id)
-except NoDataFoundException as e:
-    print(f"Container '{container_id}' not found.")
-except Exception as e:
-    print(f"Failed to start container '{container_id}': {str(e)}")
 
-try:
-    is_installed_latest_version = client.is_installed_latest_version()
-    print(f"Is installed latest version: {is_installed_latest_version}")
-except Exception as e:
-    print(f"Occured with is installed latest '{container_id}': {str(e)}")
+@app.get("/")
+def render_root(request: Request):
+    """
+    Root endpoint that returns a simple greeting message.
+    """
+    return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/pages/images")
+def render_images(request: Request, docker_client=Depends(get_docker_client)):
+    """
+    Root endpoint that returns a list of images.
+    """
+    return templates.TemplateResponse("images.html", {
+        "request": request,
+        "images": docker_client.list_images(),
+        "docker_ready": docker_client.is_docker_online()
+    })
+
+
+@app.get("/pages/containers")
+def render_containers(request: Request, docker_client=Depends(get_docker_client)):
+    """
+    Root endpoint that returns a list of containers.
+    """
+    return templates.TemplateResponse("containers.html", {
+        "request": request,
+        "containers": docker_client.list_containers(),
+        "docker_ready": docker_client.is_docker_online()
+    })
+
+
+@app.get("/pages/predictions", response_class=HTMLResponse)
+def render_prediction(request: Request, client=Depends(get_prediction_manager)):
+    """
+    Render the prediction page. If prediction fails, show error on the page.
+    """
+    try:
+        result = client.predict_memory_usage()
+        return templates.TemplateResponse("prediction.html", {
+            "request": request,
+            "result": result,      # Pydantic object
+            "error": None          # No error
+        })
+    except Exception as e:
+        return templates.TemplateResponse("prediction.html", {
+            "request": request,
+            "result": None,
+            "error": str(e)        # Pass error message to template
+        })
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

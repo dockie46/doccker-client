@@ -1,4 +1,10 @@
 docker
 requests
 packaging
+uvicorn
+fastapi
 pytest
+pydantic
+jinja2
+pandas 
+scikit-learn

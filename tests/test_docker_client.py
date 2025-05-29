@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from services.docker_client import DockerClient
+from models.exceptions import NoDataFoundException
 
 
 @patch('services.docker_client.docker.from_env')
@@ -30,8 +31,8 @@ def test_list_images_no_images(mock_from_env):
 
     docker_client = DockerClient()
 
-    images = docker_client.list_images()
-    assert images == []  # Should return empty list
+    with pytest.raises(NoDataFoundException, match="No Docker images found."):
+        docker_client.list_images()
 
 
 @patch('services.docker_client.docker.from_env')

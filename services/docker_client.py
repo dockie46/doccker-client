@@ -1,31 +1,56 @@
-from models.exceptions import NoDataFoundException
 from typing import Union
-from models.docker_model import DockerContainer, DockerImage
 from urllib3.exceptions import InsecureRequestWarning
+import requests
 import urllib3
 import docker
-import requests
+import docker.errors
+from models.exceptions import NoDataFoundException
+from models.docker_model import DockerContainer, DockerImage
+from urllib3.exceptions import InsecureRequestWarning
+
 
 # Disable SSL warnings globally for urllib3
 urllib3.disable_warnings(InsecureRequestWarning)
 
-
 class DockerClient:
     def __init__(self):
-        # Initialize the Docker client from environment variables (default configuration)
-        self.client = docker.from_env()
+        try:
+            self.client = docker.from_env()
+            # Try pinging the Docker server
+            self.client.ping()
+        except docker.errors.DockerException as e:
+            print(f"[DockerClient] Docker is not available: {e}")
+            self.client = None
+
+    def is_docker_online(self) -> bool:
+        """
+        Check if the Docker client is online.
+        """
+        if not self.client:
+            return False
+        try:
+            self.client.ping()
+            return True
+        except docker.errors.DockerException:
+            return False
 
     def list_images(self) -> list[DockerImage]:
         """
         List all Docker images.
         """
+        if not self.client:
+            print("Docker client not initialized or Docker is offline.")
+            return []
+
         try:
-            images = [DockerImage(image.id, image.tags[0] if image.tags else "untagged")  # Use "untagged" if no tags are available
-                      for image in self.client.images.list()]
+            images = [DockerImage(id=str(image.id), name=(image.tags[0] if image.tags else "untagged"))  # Use "untagged" if no tags are available
+                      for image in self.client.images.list(all=True)]
             if not images:
                 raise NoDataFoundException("No Docker images found.")
 
             return images
+        except NoDataFoundException as e:
+            raise e
         except Exception as e:
             print(f"An error occurred while listing images: {str(e)}")
             return []
@@ -34,14 +59,18 @@ class DockerClient:
         """
         List all Docker containers.
         """
+        if not self.client:
+            print("Docker client not initialized or Docker is offline.")
+            return []
+
         try:
-            containers = [DockerContainer(container.id,
-                                          container.name) for container in self.client.containers.list(all=True)]
+            containers = [
+                DockerContainer(id=container.id, name=container.name)
+                for container in self.client.containers.list(all=True)
+            ]
             if not containers:
                 raise NoDataFoundException("No Docker containers found.")
-
             return containers
-
         except Exception as e:
             print(f"An error occurred while listing containers: {str(e)}")
             return []
@@ -50,6 +79,10 @@ class DockerClient:
         """
         Start a specific container by name.
         """
+        if not self.client:
+            print("Docker client not initialized or Docker is offline.")
+            return
+
         try:
             container = self.client.containers.get(container_name)
             if container is None:
@@ -58,19 +91,30 @@ class DockerClient:
 
             container.start()
             print(f"Container {container_name} started.")
+        except docker.errors.NotFound as e:
+            raise NoDataFoundException(
+                f"Container '{container_name}' not found.") from e
         except Exception as e:
             print(f"An error occurred while starting the container: {str(e)}")
+            raise e
 
     def stop_container(self, container_name):
         """
         Stop a specific container by name.
         """
+        if not self.client:
+            print("Docker client not initialized or Docker is offline.")
+            return
+
         try:
             container = self.client.containers.get(container_name)
             container.stop()
             print(f"Container {container_name} stopped.")
+        except NoDataFoundException as e:
+            raise e
         except Exception as e:
             print(f"An error occurred while stopping the container: {str(e)}")
+            raise e
 
     def get_latest_docker_version(self) -> Union[str, None]:
         """
